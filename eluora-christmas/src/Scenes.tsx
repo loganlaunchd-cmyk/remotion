@@ -19,15 +19,48 @@ const fileExists = (name: string) =>
 
 // Shows the real photo from /public, or a clearly-labelled placeholder until
 // the file is added. The photo itself is never altered, only framed and moved.
-const Photo: React.FC<{ file: string; style: React.CSSProperties }> = ({
-  file,
-  style,
-}) => {
+// Landscape: a right-hand panel at (near) native resolution that fades into
+// black on its left edge. Vertical: full bleed.
+const Photo: React.FC<{
+  file: string;
+  aspect: number;
+  fade: number;
+  // Vertical only: "cover" fills the frame, "width" shows the whole photo
+  // width as a band fading into black above and below.
+  verticalFit: "cover" | "width";
+  style: React.CSSProperties;
+}> = ({ file, aspect, fade, verticalFit, style }) => {
+  const { width, height } = useVideoConfig();
+  const vertical = height > width;
+  const band = vertical && verticalFit === "width";
+  const panelStyle: React.CSSProperties = vertical
+    ? {
+        position: "absolute",
+        left: 0,
+        width: "100%",
+        top: band ? (height - width / aspect) / 2 + 120 : 0,
+        height: band ? width / aspect : "100%",
+        overflow: "hidden",
+        maskImage: band
+          ? "linear-gradient(to bottom, transparent 0%, black 14%, black 88%, transparent 100%)"
+          : undefined,
+      }
+    : {
+        position: "absolute",
+        top: 0,
+        right: 0,
+        height: "100%",
+        width: Math.min(width * 0.68, height * aspect),
+        overflow: "hidden",
+        maskImage: `linear-gradient(to right, transparent 0%, black ${fade}%)`,
+      };
   if (!fileExists(file)) {
     return (
-      <AbsoluteFill
+      <div
         style={{
+          ...panelStyle,
           backgroundColor: "#141210",
+          display: "flex",
           justifyContent: "center",
           alignItems: "center",
           color: "rgba(201,164,92,0.6)",
@@ -36,50 +69,73 @@ const Photo: React.FC<{ file: string; style: React.CSSProperties }> = ({
         }}
       >
         missing public/{file}
-      </AbsoluteFill>
+      </div>
     );
   }
   return (
-    <Img
-      src={staticFile(file)}
+    <div style={panelStyle}>
+      <Img
+        src={staticFile(file)}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          ...style,
+        }}
+      />
+    </div>
+  );
+};
+
+// Darkened edges + bottom gradient so the ivory headline always reads.
+const Grade: React.FC<{ verticalPosition: "top" | "bottom" }> = ({
+  verticalPosition,
+}) => {
+  const { width, height } = useVideoConfig();
+  const vertical = height > width;
+  return (
+    <AbsoluteFill
       style={{
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        objectFit: "cover",
-        ...style,
+        background: vertical
+          ? `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.5) 100%), linear-gradient(${verticalPosition === "top" ? "to top" : "to bottom"}, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 62%, rgba(0,0,0,0.78) 100%)`
+          : "radial-gradient(ellipse at 70% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.45) 100%)",
       }}
     />
   );
 };
 
-// Darkened edges + bottom gradient so the ivory headline always reads.
-const Grade: React.FC = () => (
-  <AbsoluteFill
-    style={{
-      background:
-        "radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.55) 100%), linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0) 30%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.75) 100%)",
-    }}
-  />
-);
-
-export const Headline: React.FC<{ text: string; delay: number }> = ({
-  text,
-  delay,
-}) => {
+export const Headline: React.FC<{
+  text: string;
+  delay: number;
+  verticalPosition: "top" | "bottom";
+}> = ({ text, delay, verticalPosition }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const vertical = height > width;
   return (
     <AbsoluteFill
-      style={{
-        justifyContent: "flex-end",
-        alignItems: "center",
-        paddingBottom: vertical ? 340 : 130,
-        paddingLeft: vertical ? 90 : 160,
-        paddingRight: vertical ? 90 : 160,
-      }}
+      style={
+        vertical
+          ? {
+              justifyContent:
+                verticalPosition === "top" ? "flex-start" : "flex-end",
+              alignItems: "center",
+              textAlign: "center",
+              paddingTop: 250,
+              paddingBottom: 190,
+              paddingLeft: 90,
+              paddingRight: 90,
+            }
+          : {
+              justifyContent: "center",
+              alignItems: "flex-start",
+              textAlign: "left",
+              paddingLeft: 130,
+              width: 760,
+            }
+      }
     >
       <Interactive.Div
         name="Gold rule"
@@ -104,11 +160,11 @@ export const Headline: React.FC<{ text: string; delay: number }> = ({
         style={{
           fontFamily: SERIF,
           fontWeight: 300,
-          fontSize: vertical ? 96 : 92,
+          fontSize: vertical ? 88 : 78,
+          whiteSpace: "pre-line",
           lineHeight: 1.12,
           letterSpacing: "0.02em",
           color: IVORY,
-          textAlign: "center",
           textShadow: "0 2px 30px rgba(0,0,0,0.6)",
           opacity: interpolate(frame, [delay, delay + 1.3 * fps], [0, 1], {
             extrapolateLeft: "clamp",
@@ -137,20 +193,29 @@ export const Headline: React.FC<{ text: string; delay: number }> = ({
 // 0–4s: holding case, slow Ken Burns zoom in
 export const HoldingCaseScene: React.FC<{ file: string }> = ({ file }) => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
+  const { durationInFrames, width, height } = useVideoConfig();
+  const vertical = height > width;
   return (
     <AbsoluteFill style={{ backgroundColor: BLACK, overflow: "hidden" }}>
       <Photo
         file={file}
+        aspect={1086 / 1448}
+        fade={22}
+        verticalFit="cover"
         style={{
+          objectPosition: "50% 50%",
           scale: interpolate(frame, [0, durationInFrames], [1.0, 1.12], {
             extrapolateRight: "clamp",
           }),
-          transformOrigin: "50% 45%",
+          transformOrigin: vertical ? "50% 48%" : "50% 52%",
         }}
       />
-      <Grade />
-      <Headline text="The Art of Coming Home" delay={18} />
+      <Grade verticalPosition="bottom" />
+      <Headline
+        text={"The Art of\nComing Home"}
+        delay={18}
+        verticalPosition="bottom"
+      />
     </AbsoluteFill>
   );
 };
@@ -158,17 +223,21 @@ export const HoldingCaseScene: React.FC<{ file: string }> = ({ file }) => {
 // 4–8s: product line-up, slow pan left → right with warm gold glow
 export const LineupScene: React.FC<{ file: string }> = ({ file }) => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
+  const { durationInFrames, width, height } = useVideoConfig();
+  const vertical = height > width;
   return (
     <AbsoluteFill style={{ backgroundColor: BLACK, overflow: "hidden" }}>
       <Photo
         file={file}
+        aspect={(1067 / 928) * 0.96}
+        fade={4}
+        verticalFit="cover"
         style={{
-          scale: 1.16,
-          translate: interpolate(
+          scale: vertical ? 1 : 1.04,
+          objectPosition: interpolate(
             frame,
             [0, durationInFrames],
-            ["6.5% 0%", "-6.5% 0%"],
+            vertical ? ["12% 50%", "88% 50%"] : ["0% 50%", "100% 50%"],
             { extrapolateRight: "clamp" },
           ),
         }}
@@ -177,7 +246,7 @@ export const LineupScene: React.FC<{ file: string }> = ({ file }) => {
         style={{
           mixBlendMode: "screen",
           background:
-            "radial-gradient(ellipse 60% 55% at 50% 42%, rgba(201,164,92,0.45) 0%, rgba(201,164,92,0.12) 45%, rgba(201,164,92,0) 75%)",
+            "radial-gradient(ellipse 45% 50% at 50% 40%, rgba(201,164,92,0.42) 0%, rgba(201,164,92,0.12) 45%, rgba(201,164,92,0) 75%)",
           opacity: interpolate(
             frame,
             [0, durationInFrames * 0.5, durationInFrames],
@@ -186,12 +255,16 @@ export const LineupScene: React.FC<{ file: string }> = ({ file }) => {
           translate: interpolate(
             frame,
             [0, durationInFrames],
-            ["-12% 0%", "12% 0%"],
+            vertical ? ["-25% 0%", "25% 0%"] : ["0% 0%", "30% 0%"],
           ),
         }}
       />
-      <Grade />
-      <Headline text="Six rituals from the Estonian bog" delay={22} />
+      <Grade verticalPosition="bottom" />
+      <Headline
+        text={"Six rituals from\nthe Estonian bog"}
+        delay={22}
+        verticalPosition="bottom"
+      />
     </AbsoluteFill>
   );
 };
@@ -204,16 +277,24 @@ export const OpenCaseScene: React.FC<{ file: string }> = ({ file }) => {
     <AbsoluteFill style={{ backgroundColor: BLACK, overflow: "hidden" }}>
       <Photo
         file={file}
+        aspect={935 / 1066}
+        fade={18}
+        verticalFit="width"
         style={{
-          scale: interpolate(frame, [0, durationInFrames], [1.04, 1.2], {
+          objectPosition: "50% 50%",
+          scale: interpolate(frame, [0, durationInFrames], [1.0, 1.14], {
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.4, 0, 0.6, 1),
           }),
-          transformOrigin: "50% 55%",
+          transformOrigin: "50% 60%",
         }}
       />
-      <Grade />
-      <Headline text="A little luxury. A moment for yourself." delay={22} />
+      <Grade verticalPosition="top" />
+      <Headline
+        text={"A little luxury.\nA moment for yourself."}
+        delay={22}
+        verticalPosition="top"
+      />
     </AbsoluteFill>
   );
 };
